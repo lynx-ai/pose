@@ -276,11 +276,13 @@ def create_app(password: str, cors_origin: str):
     # Routes
     ws_route = app.router.add_get('/ws', server.handle_websocket)
     offer_route = app.router.add_post('/offer', server.handle_webrtc_offer)
+    options_route = app.router.add_options('/offer', lambda req: web.Response())
     health_route = app.router.add_get('/health', lambda req: web.Response(text='ok'))
     
     # Add CORS to all routes
     cors.add(ws_route)
     cors.add(offer_route)
+    cors.add(options_route)
     cors.add(health_route)
     
     return app
