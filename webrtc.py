@@ -13,6 +13,7 @@ from PIL import Image
 
 import torch
 from aiohttp import web, WSMsgType
+from aiohttp_cors import setup, ResourceOptions
 from aiortc import RTCPeerConnection, RTCSessionDescription, RTCDataChannel
 
 from controlnet_aux import DWposeDetector
@@ -21,7 +22,7 @@ from sp_logging import setup_logging
 logger = setup_logging()
 
 # Global pose detector
-dwpose = DWposeDetector("cuda:0" if torch.cuda.is_available() else "cpu")
+dwpose = DWposeDetector(device="cuda:0" if torch.cuda.is_available() else "cpu")
 
 @dataclass
 class PeerInfo:
@@ -31,9 +32,9 @@ class PeerInfo:
     data_channel: Optional[RTCDataChannel] = None
 
 class WebRTCPoseServer:
-    def __init__(self, password: str, cors_origin: str = "*"):
+    def __init__(self, password: str, cors_origin: str):
         self.room_password = password
-        self.cors_origin = cors_origin.rstrip('/') if cors_origin != "*" else cors_origin
+        self.cors_origin = cors_origin.rstrip('/')
         self.signaling_connections = {}  # peer_id -> websocket for status updates
         self.pcs = set()  # Store peer connections
         self.peers = {}  # peer_id -> PeerInfo mapping
@@ -257,30 +258,30 @@ class WebRTCPoseServer:
         for peer_id in dead_connections:
             self.signaling_connections.pop(peer_id, None)
 
-def create_app(password: str, cors_origin: str = "*"):
+def create_app(password: str, cors_origin: str):
     server = WebRTCPoseServer(password, cors_origin)
     app = web.Application()
     app._webrtc_server = server  # Store reference for cleanup
     
-    # Add CORS middleware
-    @web.middleware
-    async def cors_middleware(request, handler):
-        if request.method == "OPTIONS":
-            response = web.Response()
-        else:
-            response = await handler(request)
-
-        response.headers['Access-Control-Allow-Origin'] = server.cors_origin
-        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
-        response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
-        return response
-
-    app.middlewares.append(cors_middleware)
+    # Setup CORS
+    cors = setup(app, defaults={
+        cors_origin: ResourceOptions(
+            allow_credentials=True,
+            expose_headers="*",
+            allow_headers="*",
+            allow_methods="*"
+        )
+    })
     
     # Routes
-    app.router.add_get('/ws', server.handle_websocket)  # Status updates only
-    app.router.add_post('/offer', server.handle_webrtc_offer)  # WebRTC negotiation
-    app.router.add_get('/health', lambda req: web.Response(text='ok'))
+    ws_route = app.router.add_get('/ws', server.handle_websocket)
+    offer_route = app.router.add_post('/offer', server.handle_webrtc_offer)
+    health_route = app.router.add_get('/health', lambda req: web.Response(text='ok'))
+    
+    # Add CORS to all routes
+    cors.add(ws_route)
+    cors.add(offer_route)
+    cors.add(health_route)
     
     return app
 
@@ -305,7 +306,7 @@ if __name__ == '__main__':
     parser.add_argument("--host", default="0.0.0.0", help="Host to bind to")
     parser.add_argument("--port", type=int, default=8020, help="Port to bind to")
     parser.add_argument("--password", required=True, help="Room password for WebRTC connections")
-    parser.add_argument("--cors-origin", default="*", help="CORS origin (default: *)")
+    parser.add_argument("--cors-origin", required=True, help="CORS origin (required)")
     parser.add_argument("--verbose", "-v", action="count", default=0)
     
     args = parser.parse_args()

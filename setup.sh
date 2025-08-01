@@ -1,4 +1,4 @@
-pip install fastapi "uvicorn[standard]" Pillow controlnet-aux aiohttp aiortc
+pip install fastapi "uvicorn[standard]" Pillow controlnet-aux aiohttp aiortc aiohttp_cors
 pip install -U openmim
 mim install mmengine
 mim install "mmcv>=2.0.1"
